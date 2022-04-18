@@ -1,14 +1,19 @@
 import dataclasses
 import enum
+import logging
 import pathlib
 import re
-from typing import List, NoReturn, Generator
-import logging
+from typing import Generator, Iterator, List, NoReturn
+
 import requests
 import upnpclient as upnp
 from didl_lite import didl_lite
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 log = logging.getLogger(__name__)
 
 
@@ -17,12 +22,31 @@ def main() -> NoReturn:
     target_directory.mkdir(parents=True, exist_ok=True)
     log.info(f"Downloading media to {target_directory}")
     log.info("Started cameras discovery")
+    previously_discovered_cameras = []
     while True:
         cameras = discover_cameras()
         for camera in cameras:
+            if camera in previously_discovered_cameras:
+                # we don't want to keep downloading photos from the same camera over and over again, so we only do this
+                # once, after a camera connects to the network
+                continue
             log.info(f"Detected a camera: {camera.friendly_name}. Downloading media.")
             download_media_from_camera(camera, target_directory)
-            return
+        previously_discovered_cameras = cameras
+
+
+class CameraList:
+    def __init__(self, cameras: List[upnp.Device]) -> None:
+        self._cameras = cameras
+
+    def __iter__(self) -> Iterator[upnp.Device]:
+        return iter(self._cameras)
+
+    def __contains__(self, other: upnp.Device) -> bool:
+        return any(
+            other.location == c.location and other.friendly_name == c.friendly_name
+            for c in self._cameras
+        )
 
 
 def is_lumix_camera(device: upnp.Device) -> bool:
@@ -33,9 +57,9 @@ def is_lumix_camera(device: upnp.Device) -> bool:
     )
 
 
-def discover_cameras() -> List[upnp.Device]:
+def discover_cameras() -> CameraList:
     devices: List[upnp.Device] = upnp.discover(timeout=1)
-    return [d for d in devices if is_lumix_camera(d)]
+    return CameraList([d for d in devices if is_lumix_camera(d)])
 
 
 @dataclasses.dataclass
@@ -120,6 +144,8 @@ def download_media_from_camera(
                     log.info(
                         f"Downloaded {downloaded} and deleted {media_item} from camera"
                     )
+                else:
+                    log.info(f"Could not download {media_item}")
             elif isinstance(media_item, Movie):
                 download_movie(media_item, target_directory)
                 content_directory.DestroyObject(ObjectID=media_item.object_id)
