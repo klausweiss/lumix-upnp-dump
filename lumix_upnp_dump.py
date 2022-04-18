@@ -163,7 +163,9 @@ def download_media_from_camera(
             target_locations = DownloadTargetLocations(target_directory)
             log.info(f"Started downloading {media_item}")
             if isinstance(media_item, Photo):
-                downloaded = download_photo(media_item, target_locations)
+                downloaded = download_photo(
+                    media_item, target_locations, WhatToDownload.BOTH
+                )
                 if downloaded is not WhatWasDownloaded.NONE:
                     content_directory.DestroyObject(ObjectID=media_item.object_id)
                     log.info(f"Deleted {media_item} from camera")
@@ -194,29 +196,39 @@ class WhatWasDownloaded(enum.Enum):
     BOTH = enum.auto()
 
 
+class WhatToDownload(enum.Enum):
+    JUST_JPEG = enum.auto()
+    JUST_RAW = enum.auto()
+    BOTH = enum.auto()
+
+
 def download_photo(
-    photo: Photo, target_locations: DownloadTargetLocations
+    photo: Photo,
+    target_locations: DownloadTargetLocations,
+    what_to_download: WhatToDownload,
 ) -> WhatWasDownloaded:
     downloaded = WhatWasDownloaded.NONE
-    try:
-        # TODO: add flag to skip RAWs (e.g. GX7 does not support this)
-        download_file(photo.raw_url, target_locations)
-        downloaded = WhatWasDownloaded.JUST_RAW
-        log.info(f"Downloaded RAW: {photo.name}")
-    except requests.HTTPError:
-        # it's fine, raw is not always there
-        pass
-    try:
-        download_file(photo.best_jpeg_url, target_locations)
-        downloaded = (
-            WhatWasDownloaded.BOTH
-            if downloaded == WhatWasDownloaded.JUST_RAW
-            else WhatWasDownloaded.JUST_JPEG
-        )
-        log.info(f"Downloaded JPEG: {photo.name}")
-    except requests.HTTPError:
-        # it's fine, jpeg is also not always there
-        pass
+    if what_to_download in {WhatToDownload.JUST_RAW, WhatToDownload.BOTH}:
+        try:
+            download_file(photo.raw_url, target_locations)
+            downloaded = WhatWasDownloaded.JUST_RAW
+            log.info(f"Downloaded RAW: {photo.name}")
+        except requests.HTTPError:
+            # it's fine, raw is not always there
+            pass
+
+    if what_to_download in {WhatToDownload.JUST_JPEG, WhatToDownload.BOTH}:
+        try:
+            download_file(photo.best_jpeg_url, target_locations)
+            downloaded = (
+                WhatWasDownloaded.BOTH
+                if downloaded == WhatWasDownloaded.JUST_RAW
+                else WhatWasDownloaded.JUST_JPEG
+            )
+            log.info(f"Downloaded JPEG: {photo.name}")
+        except requests.HTTPError:
+            # it's fine, jpeg is also not always there
+            pass
     return downloaded
 
 
