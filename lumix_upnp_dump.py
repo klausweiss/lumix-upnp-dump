@@ -1,9 +1,10 @@
 import dataclasses
 import enum
 import logging
+import os
 import pathlib
 import re
-from typing import Generator, Iterator, List, NoReturn
+from typing import Dict, Generator, Iterator, List, NoReturn, Union
 
 import requests
 import upnpclient as upnp
@@ -81,7 +82,7 @@ class Photo:
 
     @property
     def name(self) -> str:
-        return self.best_jpeg_url.split("/")[-1].rsplit(".", maxsplit=1)[0]
+        return base_filename_from_url(self.best_jpeg_url)
 
     @property
     def object_id(self) -> str:
@@ -112,7 +113,7 @@ class Movie:
 
     @property
     def name(self) -> str:
-        return self.mp4_url.split("/")[-1].rsplit(".", maxsplit=1)[0]
+        return base_filename_from_url(self.mp4_url)
 
     @property
     def object_id(self) -> str:
@@ -129,36 +130,61 @@ class Movie:
         return f"<Movie: {self.name}>"
 
 
+def base_filename_from_url(url: str) -> str:
+    return url.split("/")[-1].rsplit(".", maxsplit=1)[0]
+
+
+class DownloadTargetLocations:
+    def __init__(self, base_dir: pathlib.Path) -> None:
+        self._base_dir = base_dir
+        self._paths: Dict[str, bool] = dict()
+
+    def register(self, path: str) -> pathlib.Path:
+        self._paths[path] = False
+        return self._base_dir / path
+
+    def mark_completed(self, path: str) -> None:
+        self._paths[path] = True
+
+    def delete_not_completed(self) -> None:
+        for p, v in self._paths.items():
+            if not v:
+                os.remove(self._base_dir / p)
+
+
 def download_media_from_camera(
     camera: upnp.Device, target_directory: pathlib.Path
 ) -> None:
     content_directory = camera["ContentDirectory"]
     media = iter_media(content_directory)
+    target_locations = None
     try:
         for media_item in media:
+            target_locations = DownloadTargetLocations(target_directory)
             log.info(f"Started downloading {media_item}")
             if isinstance(media_item, Photo):
-                downloaded = download_photo(media_item, target_directory)
+                downloaded = download_photo(media_item, target_locations)
                 if downloaded is not WhatWasDownloaded.NONE:
                     content_directory.DestroyObject(ObjectID=media_item.object_id)
-                    log.info(
-                        f"Downloaded {downloaded} and deleted {media_item} from camera"
-                    )
+                    log.info(f"Deleted {media_item} from camera")
                 else:
                     log.info(f"Could not download {media_item}")
             elif isinstance(media_item, Movie):
-                download_movie(media_item, target_directory)
+                download_movie(media_item, target_locations)
                 content_directory.DestroyObject(ObjectID=media_item.object_id)
                 log.info(f"Downloaded and deleted {media_item} from camera")
     except requests.exceptions.ChunkedEncodingError:
-        pass  # download was interrupted (e.g. camera button pressed)
-        # TODO: delete incomplete files from disk
+        log.info("Media download was interrupted")
+        # download was interrupted (e.g. camera button pressed)
+        # delete incomplete files from disk
+        if target_locations is not None:
+            target_locations.delete_not_completed()
     except upnp.soap.SOAPError:
         pass  # no content
 
 
-def download_movie(movie: Movie, target_directory: pathlib.Path) -> None:
-    download_file(movie.mp4_url, target_directory)
+def download_movie(movie: Movie, target_locations: DownloadTargetLocations) -> None:
+    download_file(movie.mp4_url, target_locations)
 
 
 class WhatWasDownloaded(enum.Enum):
@@ -168,38 +194,44 @@ class WhatWasDownloaded(enum.Enum):
     BOTH = enum.auto()
 
 
-def download_photo(photo: Photo, target_directory: pathlib.Path) -> WhatWasDownloaded:
+def download_photo(
+    photo: Photo, target_locations: DownloadTargetLocations
+) -> WhatWasDownloaded:
     downloaded = WhatWasDownloaded.NONE
     try:
         # TODO: add flag to skip RAWs (e.g. GX7 does not support this)
-        download_file(photo.raw_url, target_directory)
+        download_file(photo.raw_url, target_locations)
         downloaded = WhatWasDownloaded.JUST_RAW
+        log.info(f"Downloaded RAW: {photo.name}")
     except requests.HTTPError:
         # it's fine, raw is not always there
         pass
     try:
-        download_file(photo.best_jpeg_url, target_directory)
+        download_file(photo.best_jpeg_url, target_locations)
         downloaded = (
             WhatWasDownloaded.BOTH
             if downloaded == WhatWasDownloaded.JUST_RAW
             else WhatWasDownloaded.JUST_JPEG
         )
+        log.info(f"Downloaded JPEG: {photo.name}")
     except requests.HTTPError:
         # it's fine, jpeg is also not always there
         pass
     return downloaded
 
 
-def download_file(url: str, target_directory: pathlib.Path) -> None:
-    local_filename = url.split("/")[-1]
+def download_file(url: str, target_locations: DownloadTargetLocations) -> None:
+    output_file = url.rsplit("/", maxsplit=1)[1]
+    target_path = target_locations.register(output_file)
     with requests.get(url, stream=True) as response:
         response.raise_for_status()
-        with open(target_directory / local_filename, "wb") as f:
+        with open(target_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
+    target_locations.mark_completed(output_file)
 
 
-def iter_media(content_directory) -> Generator[Photo, None, None]:
+def iter_media(content_directory) -> Generator[Union[Movie, Photo], None, None]:
     last_index = 0
     request_at_once = 10
     while True:
