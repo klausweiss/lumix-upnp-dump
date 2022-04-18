@@ -3,19 +3,25 @@ import enum
 import pathlib
 import re
 from typing import List, NoReturn, Generator
-
+import logging
 import requests
 import upnpclient as upnp
 from didl_lite import didl_lite
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
 
 def main() -> NoReturn:
     target_directory = pathlib.Path("photos")
     target_directory.mkdir(parents=True, exist_ok=True)
+    log.info(f"Downloading media to {target_directory}")
+    log.info("Started cameras discovery")
     while True:
         cameras = discover_cameras()
         for camera in cameras:
-            download_camera_photos(camera, target_directory)
+            log.info(f"Detected a camera: {camera.friendly_name}. Downloading media.")
+            download_media_from_camera(camera, target_directory)
             return
 
 
@@ -50,6 +56,10 @@ class Photo:
     _JPEG_SUFFIX_RE = re.compile(r"\.jpe?g$", re.IGNORECASE)
 
     @property
+    def name(self) -> str:
+        return self.best_jpeg_url.split("/")[-1].rsplit(".", maxsplit=1)[0]
+
+    @property
     def object_id(self) -> str:
         return self._didl_image.id
 
@@ -67,21 +77,62 @@ class Photo:
         )
         return (maybe_best_image or sorted_by_size)[0].uri
 
+    def __str__(self) -> str:
+        return f"<Photo: {self.name}>"
 
-def download_camera_photos(camera: upnp.Device, target_directory: pathlib.Path) -> None:
+
+@dataclasses.dataclass
+class Movie:
+    _didl_movie: didl_lite.Movie
+    _MP4_RE = re.compile(r"/do\w+\.mp4$", re.IGNORECASE)  # /DO1050345.MP4
+
+    @property
+    def name(self) -> str:
+        return self.mp4_url.split("/")[-1].rsplit(".", maxsplit=1)[0]
+
+    @property
+    def object_id(self) -> str:
+        return self._didl_movie.id
+
+    @property
+    def mp4_url(self) -> str:
+        movies_res = [
+            res for res in self._didl_movie.res if Movie._MP4_RE.search(res.uri)
+        ]
+        return movies_res[0].uri
+
+    def __str__(self) -> str:
+        return f"<Movie: {self.name}>"
+
+
+def download_media_from_camera(
+    camera: upnp.Device, target_directory: pathlib.Path
+) -> None:
     content_directory = camera["ContentDirectory"]
-    connection_manager = camera["ConnectionManager"]
-    photos = list(list_photos(content_directory))
+    media = iter_media(content_directory)
     try:
-        for photo in photos:
-            downloaded = download_photo(photo, target_directory)
-            if downloaded is not WhatWasDownloaded.NONE:
-                content_directory.DestroyObject(ObjectID=photo.object_id)
+        for media_item in media:
+            log.info(f"Started downloading {media_item}")
+            if isinstance(media_item, Photo):
+                downloaded = download_photo(media_item, target_directory)
+                if downloaded is not WhatWasDownloaded.NONE:
+                    content_directory.DestroyObject(ObjectID=media_item.object_id)
+                    log.info(
+                        f"Downloaded {downloaded} and deleted {media_item} from camera"
+                    )
+            elif isinstance(media_item, Movie):
+                download_movie(media_item, target_directory)
+                content_directory.DestroyObject(ObjectID=media_item.object_id)
+                log.info(f"Downloaded and deleted {media_item} from camera")
     except requests.exceptions.ChunkedEncodingError:
         pass  # download was interrupted (e.g. camera button pressed)
         # TODO: delete incomplete files from disk
     except upnp.soap.SOAPError:
         pass  # no content
+
+
+def download_movie(movie: Movie, target_directory: pathlib.Path) -> None:
+    download_file(movie.mp4_url, target_directory)
 
 
 class WhatWasDownloaded(enum.Enum):
@@ -122,7 +173,7 @@ def download_file(url: str, target_directory: pathlib.Path) -> None:
                 f.write(chunk)
 
 
-def list_photos(content_directory) -> Generator[Photo, None, None]:
+def iter_media(content_directory) -> Generator[Photo, None, None]:
     last_index = 0
     request_at_once = 10
     while True:
@@ -140,9 +191,10 @@ def list_photos(content_directory) -> Generator[Photo, None, None]:
             break
         items = didl_lite.from_xml_string(didl_lite_result)
         for item in items:
-            if not isinstance(item, didl_lite.ImageItem):
-                continue
-            yield Photo(item)
+            if isinstance(item, didl_lite.ImageItem):
+                yield Photo(item)
+            elif isinstance(item, didl_lite.Movie):
+                yield Movie(item)
         last_index += returned
 
 
