@@ -175,6 +175,7 @@ def download_media_from_camera(
                 download_movie(media_item, target_locations)
                 content_directory.DestroyObject(ObjectID=media_item.object_id)
                 log.info(f"Downloaded and deleted {media_item} from camera")
+        log.info(f"Download from {camera.friendly_name} finished")
     except requests.exceptions.ChunkedEncodingError:
         log.info("Media download was interrupted")
         # download was interrupted (e.g. camera button pressed)
@@ -182,7 +183,7 @@ def download_media_from_camera(
         if target_locations is not None:
             target_locations.delete_not_completed()
     except upnp.soap.SOAPError:
-        pass  # no content
+        log.info(f"There was nothing for download at {camera.friendly_name}")
 
 
 def download_movie(movie: Movie, target_locations: DownloadTargetLocations) -> None:
