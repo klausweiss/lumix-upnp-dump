@@ -182,8 +182,6 @@ def download_media_from_camera(
         # delete incomplete files from disk
         if target_locations is not None:
             target_locations.delete_not_completed()
-    except upnp.soap.SOAPError:
-        log.info(f"There was nothing for download at {camera.friendly_name}")
 
 
 def download_movie(movie: Movie, target_locations: DownloadTargetLocations) -> None:
@@ -248,14 +246,21 @@ def iter_media(content_directory) -> Generator[Union[Movie, Photo], None, None]:
     last_index = 0
     request_at_once = 10
     while True:
-        upnp_response = content_directory.Browse(
-            ObjectID=0,
-            BrowseFlag="BrowseDirectChildren",
-            Filter="*",
-            StartingIndex=last_index,
-            RequestedCount=request_at_once,
-            SortCriteria="",
-        )  # also has an int "TotalMatches" key
+        try:
+            upnp_response = content_directory.Browse(
+                ObjectID=0,
+                BrowseFlag="BrowseDirectChildren",
+                Filter="*",
+                StartingIndex=last_index,
+                RequestedCount=request_at_once,
+                SortCriteria="",
+            )
+        except upnp.soap.SOAPError:
+            # There was no content
+            return
+        if last_index == 0:
+            total_matches: int = upnp_response["TotalMatches"]
+            log.info(f"Found {total_matches} media files in total")
         returned: int = upnp_response["NumberReturned"]
         didl_lite_result: str = upnp_response["Result"]
         if not returned:
