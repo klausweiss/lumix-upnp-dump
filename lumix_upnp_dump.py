@@ -4,8 +4,9 @@ import logging
 import os
 import pathlib
 import re
-from typing import Dict, Generator, Iterator, List, NoReturn, Union
+from typing import Dict, Generator, Iterator, List, NoReturn, Union, NamedTuple
 
+import configargparse
 import requests
 import upnpclient as upnp
 from didl_lite import didl_lite
@@ -17,13 +18,30 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+config_parser = configargparse.ArgParser()
+config_parser.add_argument(
+    "-c", "--config-file", is_config_file=True, help="config file path"
+)
+config_parser.add_argument(
+    "-o",
+    "--output-dir",
+    required=True,
+    help="directory where the photos should be saved",
+    type=pathlib.Path,
+)
 
-def main() -> NoReturn:
-    target_directory = pathlib.Path("photos")
+
+class Config(NamedTuple):
+    output_dir: pathlib.Path
+    # we don't list config_file here, as that's the internals of configargparse
+
+
+def main(config: Config) -> NoReturn:
+    target_directory = config.output_dir
     target_directory.mkdir(parents=True, exist_ok=True)
     log.info(f"Downloading media to {target_directory}")
     log.info("Started cameras discovery")
-    previously_discovered_cameras = []
+    previously_discovered_cameras = CameraList.empty()
     while True:
         cameras = discover_cameras()
         for camera in cameras:
@@ -48,6 +66,10 @@ class CameraList:
             other.location == c.location and other.friendly_name == c.friendly_name
             for c in self._cameras
         )
+
+    @classmethod
+    def empty(cls) -> "CameraList":
+        return cls([])
 
 
 def is_lumix_camera(device: upnp.Device) -> bool:
@@ -86,6 +108,7 @@ class Photo:
 
     @property
     def object_id(self) -> str:
+        # TODO: verify if should be str or int
         return self._didl_image.id
 
     @property
@@ -95,12 +118,14 @@ class Photo:
     @property
     def best_jpeg_url(self) -> str:
         maybe_best_image = [
-            res for res in self._didl_image.res if Photo._BEST_JPEG_RE.search(res.uri)
+            res
+            for res in self._didl_image.res
+            if res.uri is not None and Photo._BEST_JPEG_RE.search(res.uri)
         ]
         sorted_by_size = sorted(
             self._didl_image.res, key=lambda res: float(res.size or "0"), reverse=True
         )
-        return (maybe_best_image or sorted_by_size)[0].uri
+        return (maybe_best_image or sorted_by_size)[0].uri or "TODO"
 
     def __str__(self) -> str:
         return f"<Photo: {self.name}>"
@@ -121,10 +146,9 @@ class Movie:
 
     @property
     def mp4_url(self) -> str:
-        movies_res = [
-            res for res in self._didl_movie.res if Movie._MP4_RE.search(res.uri)
-        ]
-        return movies_res[0].uri
+        uris = (res.uri for res in self._didl_movie.res if res.uri is not None)
+        movies_uris = [uri for uri in uris if Movie._MP4_RE.search(uri)]
+        return movies_uris[0]
 
     def __str__(self) -> str:
         return f"<Movie: {self.name}>"
@@ -242,7 +266,9 @@ def download_file(url: str, target_locations: DownloadTargetLocations) -> None:
     target_locations.mark_completed(output_file)
 
 
-def iter_media(content_directory) -> Generator[Union[Movie, Photo], None, None]:
+def iter_media(
+    content_directory: "upnp.ContentDirectory",
+) -> Generator[Union[Movie, Photo], None, None]:
     last_index = 0
     request_at_once = 10
     while True:
@@ -275,4 +301,5 @@ def iter_media(content_directory) -> Generator[Union[Movie, Photo], None, None]:
 
 
 if __name__ == "__main__":
-    main()
+    config = config_parser.parse_args()
+    main(config)
