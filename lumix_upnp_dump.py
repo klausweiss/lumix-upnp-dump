@@ -1,5 +1,6 @@
 import dataclasses
 import enum
+import itertools
 import logging
 import os
 import pathlib
@@ -123,9 +124,14 @@ class Photo:
             if res.uri is not None and Photo._BEST_JPEG_RE.search(res.uri)
         ]
         sorted_by_size = sorted(
-            self._didl_image.res, key=lambda res: float(res.size or "0"), reverse=True
+            self._didl_image.res,
+            key=lambda res: float(res.size or "0"),
+            reverse=True,
         )
-        return (maybe_best_image or sorted_by_size)[0].uri or "TODO"
+        for image in itertools.chain(maybe_best_image, sorted_by_size):
+            if image.uri is not None:
+                return image.uri
+        raise RuntimeError("Couldn't find any image's paths")
 
     def __str__(self) -> str:
         return f"<Photo: {self.name}>"
