@@ -5,7 +5,15 @@ import logging
 import os
 import pathlib
 import re
-from typing import Dict, Generator, Iterator, List, NoReturn, Union, NamedTuple
+from typing import (
+    Dict,
+    Generator,
+    Iterator,
+    List,
+    NoReturn,
+    Union,
+    NamedTuple,
+)
 
 import configargparse
 import requests
@@ -186,10 +194,10 @@ def download_media_from_camera(
     camera: upnp.Device, target_directory: pathlib.Path
 ) -> None:
     content_directory = camera["ContentDirectory"]
-    media = iter_media(content_directory)
+    media_iterator = UpnpMediaIterator(content_directory)
     target_locations = None
     try:
-        for media_item in media:
+        for media_item in media_iterator:
             target_locations = DownloadTargetLocations(target_directory)
             log.info(f"Started downloading {media_item}")
             if isinstance(media_item, Photo):
@@ -198,12 +206,14 @@ def download_media_from_camera(
                 )
                 if downloaded is not WhatWasDownloaded.NONE:
                     content_directory.DestroyObject(ObjectID=media_item.object_id)
+                    media_iterator.notify_produced_item_was_deleted()
                     log.info(f"Deleted {media_item} from camera")
                 else:
                     log.info(f"Could not download {media_item}")
             elif isinstance(media_item, Movie):
                 download_movie(media_item, target_locations)
                 content_directory.DestroyObject(ObjectID=media_item.object_id)
+                media_iterator.notify_produced_item_was_deleted()
                 log.info(f"Downloaded and deleted {media_item} from camera")
         log.info(f"Download from {camera.friendly_name} finished")
     except requests.exceptions.ChunkedEncodingError:
@@ -272,38 +282,50 @@ def download_file(url: str, target_locations: DownloadTargetLocations) -> None:
     target_locations.mark_completed(output_file)
 
 
-def iter_media(
-    content_directory: "upnp.ContentDirectory",
-) -> Generator[Union[Movie, Photo], None, None]:
-    last_index = 0
-    request_at_once = 10
-    while True:
-        try:
-            upnp_response = content_directory.Browse(
-                ObjectID=0,
-                BrowseFlag="BrowseDirectChildren",
-                Filter="*",
-                StartingIndex=last_index,
-                RequestedCount=request_at_once,
-                SortCriteria="",
-            )
-        except upnp.soap.SOAPError:
-            # There was no content
-            return
-        if last_index == 0:
-            total_matches: int = upnp_response["TotalMatches"]
-            log.info(f"Found {total_matches} media files in total")
-        returned: int = upnp_response["NumberReturned"]
-        didl_lite_result: str = upnp_response["Result"]
-        if not returned:
-            break
-        items = didl_lite.from_xml_string(didl_lite_result)
-        for item in items:
-            if isinstance(item, didl_lite.ImageItem):
-                yield Photo(item)
-            elif isinstance(item, didl_lite.Movie):
-                yield Movie(item)
-        last_index += returned
+class UpnpMediaIterator:
+    def __init__(
+        self,
+        content_directory: "upnp.ContentDirectory",
+    ) -> None:
+        self._content_directory = content_directory
+        self._num_deleted_items = 0
+
+    def notify_produced_item_was_deleted(self) -> None:
+        self._num_deleted_items += 1
+
+    def __iter__(self) -> Generator[Union[Movie, Photo], None, None]:
+        last_index = 0
+        request_at_once = 10
+        while True:
+            # If we delete items that were produced by this generator, subsequent items are shifted left (10th item
+            # becomes 9th and so on), so we should adjust the index to take this into account.
+            starting_index = last_index - self._num_deleted_items
+            try:
+                upnp_response = self._content_directory.Browse(
+                    ObjectID=0,
+                    BrowseFlag="BrowseDirectChildren",
+                    Filter="*",
+                    StartingIndex=starting_index,
+                    RequestedCount=request_at_once,
+                    SortCriteria="",
+                )
+            except upnp.soap.SOAPError:
+                # There was no content
+                return
+            if last_index == 0:
+                total_matches: int = upnp_response["TotalMatches"]
+                log.info(f"Found {total_matches} media files in total")
+            returned: int = upnp_response["NumberReturned"]
+            didl_lite_result: str = upnp_response["Result"]
+            if not returned:
+                break
+            items = didl_lite.from_xml_string(didl_lite_result)
+            for item in items:
+                if isinstance(item, didl_lite.ImageItem):
+                    yield Photo(item)
+                elif isinstance(item, didl_lite.Movie):
+                    yield Movie(item)
+            last_index += returned
 
 
 if __name__ == "__main__":
