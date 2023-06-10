@@ -6,6 +6,9 @@ authors = ["Mikołaj Biel <lumix-upnp-dump@mbiel.pl>"]
 readme = "README.md"
 license = "GPL-3.0-only"
 repository = "https://github.com/klausweiss/lumix-upnp-dump"
+classifiers = [
+	"Topic :: Multimedia :: Graphics :: Capture :: Digital Camera",
+]
 
 [tool.poetry.dependencies]
 python = ">=3.10.10,<3.12"
