@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Program that dumps media from Lumix cameras on the network, removing them from device."
 authors = ["Mikołaj Biel <lumix-upnp-dump@mbiel.pl>"]
 readme = "README.md"
+license = "GPL-3.0-only"
 
 [tool.poetry.dependencies]
 python = ">=3.10.10,<3.12"
@@ -26,7 +27,6 @@ lumix-upnp-dump = "lumix_upnp_dump:main"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
-
 
 [tool.mypy]
 check_untyped_defs = true
