@@ -5,6 +5,7 @@ description = "Program that dumps media from Lumix cameras on the network, remov
 authors = ["Mikołaj Biel <lumix-upnp-dump@mbiel.pl>"]
 readme = "README.md"
 license = "GPL-3.0-only"
+repository = "https://github.com/klausweiss/lumix-upnp-dump"
 
 [tool.poetry.dependencies]
 python = ">=3.10.10,<3.12"
