@@ -1,7 +1,5 @@
 from typing import List, Literal, Union, overload
 
-import upnpclient.soap
-
 class UpnpResponse:
     @overload
     def __getitem__(self, key: Literal["Result"]) -> str: ...

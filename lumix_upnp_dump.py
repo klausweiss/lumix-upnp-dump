@@ -5,15 +5,7 @@ import logging
 import os
 import pathlib
 import re
-from typing import (
-    Dict,
-    Generator,
-    Iterator,
-    List,
-    NoReturn,
-    Union,
-    NamedTuple,
-)
+from typing import Dict, Generator, Iterator, List, NamedTuple, NoReturn, Union
 
 import configargparse
 import requests
@@ -22,7 +14,9 @@ from didl_lite import didl_lite
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s",
+    format=(
+        "%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s"
+    ),
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger(__name__)
@@ -45,7 +39,7 @@ class Config(NamedTuple):
     # we don't list config_file here, as that's the internals of configargparse
 
 
-def main(config: Config) -> NoReturn:
+def run(config: Config) -> NoReturn:
     target_directory = config.output_dir
     target_directory.mkdir(parents=True, exist_ok=True)
     log.info(f"Downloading media to {target_directory}")
@@ -55,8 +49,9 @@ def main(config: Config) -> NoReturn:
         cameras = discover_cameras()
         for camera in cameras:
             if camera in previously_discovered_cameras:
-                # we don't want to keep downloading photos from the same camera over and over again, so we only do this
-                # once, after a camera connects to the network
+                # we don't want to keep downloading photos from the same camera over
+                # and over again, so we only do this once, after a camera connects to
+                # the network
                 continue
             log.info(f"Detected a camera: {camera.friendly_name}. Downloading media.")
             download_media_from_camera(camera, target_directory)
@@ -297,8 +292,9 @@ class UpnpMediaIterator:
         last_index = 0
         request_at_once = 10
         while True:
-            # If we delete items that were produced by this generator, subsequent items are shifted left (10th item
-            # becomes 9th and so on), so we should adjust the index to take this into account.
+            # If we delete items that were produced by this generator, subsequent items
+            # are shifted left (10th item becomes 9th and so on), so we should adjust
+            # the index to take this into account.
             starting_index = last_index - self._num_deleted_items
             try:
                 upnp_response = self._content_directory.Browse(
@@ -328,6 +324,10 @@ class UpnpMediaIterator:
             last_index += returned
 
 
-if __name__ == "__main__":
+def main() -> None:
     config = config_parser.parse_args()
-    main(config)
+    run(config)
+
+
+if __name__ == "__main__":
+    main()
