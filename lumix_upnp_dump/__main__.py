@@ -1,16 +1,21 @@
 import dataclasses
 import enum
+import functools
 import itertools
 import logging
 import os
 import pathlib
 import re
+import string
+import subprocess
 from typing import Dict, Generator, Iterator, List, NamedTuple, NoReturn, Union
 
 import configargparse
 import requests
 import upnpclient as upnp
 from didl_lite import didl_lite
+
+from lumix_upnp_dump.more_argparse import PreserveWhiteSpaceWrapRawTextHelpFormatter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,25 +26,75 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-config_parser = configargparse.ArgParser()
+
+config_parser = configargparse.ArgParser(
+    formatter_class=PreserveWhiteSpaceWrapRawTextHelpFormatter
+)
 config_parser.add_argument(
-    "-c", "--config-file", is_config_file=True, help="config file path"
+    "-c", "--config-file", is_config_file=True, help="Config file path"
 )
 config_parser.add_argument(
     "-o",
     "--output-dir",
     required=True,
-    help="directory where the photos should be saved",
+    help="Directory where the photos should be saved",
     type=pathlib.Path,
+)
+config_parser.add_argument(
+    (arg_flag := "--command-after-finish"),
+    required=False,
+    help=(
+        "A shell command to run when downloading media from a camera is finished. "
+        "Also run if downloading was interrupted. "
+        "The command can include the following special tags which will be replaced by appropriate values when run:"
+        "\n  - ${camera}: the camera name"
+        "\n  - ${n}: number of media files fetched (a picture is only counted once even if both JPEG and RAW were saved)"  # noqa
+        "\n  - ${total}: total number of media files on the device prior to download or '-' if unknown"  # noqa
+        "\nFor example:"
+        "\n"
+        "\n  %(prog)s [...] "
+        + arg_flag
+        + " 'echo Downloaded ${n}/${total} media files from ${camera} >> /tmp/lumix-dump.log'"
+    ),
+    type=str,
 )
 
 
 class Config(NamedTuple):
+    config_file: str | None
     output_dir: pathlib.Path
-    # we don't list config_file here, as that's the internals of configargparse
+    command_after_finish: str | None  # this is the unescaped raw command, as passed in command line
+
+
+class ExecutionContext:
+    def __init__(self, config: Config) -> None:
+        self.config = config
+
+    def run_command_after_finish(
+        self, n: int, total_items: int | None, camera_name: str
+    ) -> None:
+        if self._command_after_finish_template is None:
+            return
+        command_string = self._command_after_finish_template.safe_substitute(
+            dict(
+                n=n,
+                camera=camera_name,
+                total=total_items if total_items is not None else "-",
+            )
+        )
+        log.info("Running a command after a finished download: %s", command_string)
+        cmd = ["sh", "-c", command_string]
+        subprocess.run(cmd)
+
+    @functools.cached_property
+    def _command_after_finish_template(self) -> string.Template | None:
+        if self.config.command_after_finish is None:
+            return None
+        return string.Template(self.config.command_after_finish)
 
 
 def run(config: Config) -> NoReturn:
+    context = ExecutionContext(config)
     target_directory = config.output_dir
     target_directory.mkdir(parents=True, exist_ok=True)
     log.info(f"Downloading media to {target_directory}")
@@ -54,7 +109,8 @@ def run(config: Config) -> NoReturn:
                 # the network
                 continue
             log.info(f"Detected a camera: {camera.friendly_name}. Downloading media.")
-            download_media_from_camera(camera, target_directory)
+            download_media_from_camera(context, camera, target_directory)
+
         previously_discovered_cameras = cameras
 
 
@@ -186,13 +242,18 @@ class DownloadTargetLocations:
 
 
 def download_media_from_camera(
-    camera: upnp.Device, target_directory: pathlib.Path
+    context: ExecutionContext,
+    camera: upnp.Device,
+    target_directory: pathlib.Path,
 ) -> None:
     content_directory = camera["ContentDirectory"]
     media_iterator = UpnpMediaIterator(content_directory)
     target_locations = None
+    nb_downloaded = 0
     try:
         for media_item in media_iterator:
+            # We create a DownloadTargetLotions object per media_item, to only delete the locations associated with
+            # that media item if for some reason the download fails.
             target_locations = DownloadTargetLocations(target_directory)
             log.info(f"Started downloading {media_item}")
             if isinstance(media_item, Photo):
@@ -203,6 +264,7 @@ def download_media_from_camera(
                     content_directory.DestroyObject(ObjectID=media_item.object_id)
                     media_iterator.notify_produced_item_was_deleted()
                     log.info(f"Deleted {media_item} from camera")
+                    nb_downloaded += 1
                 else:
                     log.info(f"Could not download {media_item}")
             elif isinstance(media_item, Movie):
@@ -210,6 +272,7 @@ def download_media_from_camera(
                 content_directory.DestroyObject(ObjectID=media_item.object_id)
                 media_iterator.notify_produced_item_was_deleted()
                 log.info(f"Downloaded and deleted {media_item} from camera")
+                nb_downloaded += 1
         log.info(f"Download from {camera.friendly_name} finished")
     except requests.exceptions.ChunkedEncodingError:
         log.info("Media download was interrupted")
@@ -217,6 +280,12 @@ def download_media_from_camera(
         # delete incomplete files from disk
         if target_locations is not None:
             target_locations.delete_not_completed()
+    finally:
+        context.run_command_after_finish(
+            n=nb_downloaded,
+            total_items=media_iterator.total_items,
+            camera_name=camera.friendly_name,
+        )
 
 
 def download_movie(movie: Movie, target_locations: DownloadTargetLocations) -> None:
@@ -284,9 +353,14 @@ class UpnpMediaIterator:
     ) -> None:
         self._content_directory = content_directory
         self._num_deleted_items = 0
+        self._total_items: int | None = None
 
     def notify_produced_item_was_deleted(self) -> None:
         self._num_deleted_items += 1
+
+    @property
+    def total_items(self) -> int | None:
+        return self._total_items
 
     def __iter__(self) -> Generator[Union[Movie, Photo], None, None]:
         last_index = 0
@@ -310,6 +384,7 @@ class UpnpMediaIterator:
                 return
             if last_index == 0:
                 total_matches: int = upnp_response["TotalMatches"]
+                self._total_items = total_matches
                 log.info(f"Found {total_matches} media files in total")
             returned: int = upnp_response["NumberReturned"]
             didl_lite_result: str = upnp_response["Result"]
@@ -325,7 +400,7 @@ class UpnpMediaIterator:
 
 
 def main() -> None:
-    config = config_parser.parse_args()
+    config = Config(**vars(config_parser.parse_args()))
     run(config)
 
 

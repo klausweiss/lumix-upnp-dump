@@ -5,11 +5,11 @@ Allows to automatically dump all media from the camera, including videos, not li
 **Once media are transferred to the computer, they're deleted from the camera.**
 
 
-## ⚠️ Warranty
 
-**This software comes with no warranty whatsoever.**
-Take note your photos might get unrecoverably deleted or camera might misbehave.
-You're using this on your own risk and responsibility.
+> [!CAUTION]
+> **This software comes with no warranty whatsoever.**
+> Take note your photos might get unrecoverably deleted or camera might misbehave.
+> You're using this on your own risk and responsibility.
 
 
 ## Installation
@@ -50,3 +50,36 @@ It can potentially support other models as well.
    It's easy to forget the camera is runnng and drain the battery this way.
    You can interrupt the connection on the camera now by half-pressing the shutter button and turning the camera off or terminating the network connection (see the device manual).
 
+### Full help text
+
+
+> [!WARNING]
+> Be careful what you put in `--command-after-finish`.
+> It uses python's `subprocess.run` under the hood, hence allows to execute arbitraty code.
+
+```
+usage: lumix-upnp-dump [-h] [-c CONFIG_FILE] -o OUTPUT_DIR [--command-after-finish COMMAND_AFTER_FINISH]
+
+options:
+  -h, --help            show this help message and exit
+  -c CONFIG_FILE, --config-file CONFIG_FILE
+                        Config file path
+  -o OUTPUT_DIR, --output-dir OUTPUT_DIR
+                        Directory where the photos should be saved
+  --command-after-finish COMMAND_AFTER_FINISH
+                        A shell command to run when downloading media from a camera is finished. Also run if
+                        downloading was interrupted. The command can include the following special tags which will be
+                        replaced by appropriate values when run:
+                          - ${camera}: the camera name
+                          - ${n}: number of media files fetched (a picture is only counted once even if both JPEG and
+                            RAW were saved)
+                          - ${total}: total number of media files on the device prior to download or '-' if unknown
+                        For example:
+                        
+                          lumix-upnp-dump [...] --command-after-finish 'echo Downloaded ${n}/${total} media files from
+                          ${camera} >> /tmp/lumix-dump.log'
+
+Args that start with '--' (eg. -o) can also be set in a config file (specified via -c). Config file syntax allows:
+key=value, flag=true, stuff=[a,b,c] (for details, see syntax at https://goo.gl/R74nmi). If an arg is specified in more
+than one place, then commandline values override config file values which override defaults.
+```
