@@ -20,7 +20,7 @@
       in
       {
         packages = {
-          lumix_upnp_dump = mkPoetryApplication { 
+          lumix-upnp-dump = mkPoetryApplication { 
             projectDir = self; 
             overrides = p2n.defaultPoetryOverrides.extend (final: prev: { 
               upnpclient = prev.upnpclient.overridePythonAttrs (old: {
@@ -32,7 +32,7 @@
 
             });
           };
-          default = self.packages.${system}.lumix_upnp_dump;
+          default = self.packages.${system}.lumix-upnp-dump;
         };
 
         # Shell for app dependencies.
@@ -41,7 +41,7 @@
         #
         # Use this shell for developing your app.
         devShells.default = pkgs.mkShell {
-          inputsFrom = [ self.packages.${system}.lumix_upnp_dump ];
+          inputsFrom = [ self.packages.${system}.lumix-upnp-dump ];
         };
 
         # Shell for poetry.
@@ -51,6 +51,60 @@
         # Use this shell for changes to pyproject.toml and poetry.lock.
         devShells.poetry = pkgs.mkShell {
           packages = [ pkgs.poetry ];
+        };
+
+        nixosModules.lumix-upnp-dump = { config, pkgs, lib, ...}: 
+        with lib;
+        let cfg = config.services.lumix-upnp-dump;
+        in {
+          options.services.lumix-upnp-dump = {
+            enable = mkOption {
+              type = types.bool;
+              default = false;
+              description = ''
+                Enable support for lumix-upnp-dump.
+              '';
+            };
+            outputFolder = mkOption {
+              type = types.path;
+              description = ''
+                Where to dump the media files.
+              '';
+            };
+          };
+          config = mkIf cfg.enable {
+            systemd.services.lumix-upnp-dump = {
+              enable = true;
+              wantedBy = [
+                "multi-user.target"
+              ];
+              requires = [
+                "network.target"
+              ];
+              serviceConfig = let pkg = self.packages.${system}.default; in
+              {
+                ExecStart = "${pkg}/bin/lumix-upnp-dump -o ${toString(cfg.outputFolder)}";
+                Type = "simple";
+                ReadWritePaths = cfg.outputFolder;
+
+                PrivateTmp = "yes";
+                NoNewPrivileges = "yes";
+                PrivateDevices = "yes";
+                DevicePolicy = "closed";
+                ProtectSystem = "strict";
+                ProtectHome = "read-only";
+                ProtectControlGroups = "yes";
+                ProtectKernelModules = "yes";
+                ProtectKernelTunables = "yes";
+                RestrictAddressFamilies = "AF_UNIX AF_INET AF_INET6 AF_NETLINK";
+                RestrictNamespaces = "yes";
+                RestrictRealtime = "yes";
+                RestrictSUIDSGID = "yes";
+                MemoryDenyWriteExecute = "yes";
+                LockPersonality = "yes";
+              };
+            };
+          };
         };
       });
 }
