@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 
 config_parser = configargparse.ArgParser(
     formatter_class=PreserveWhiteSpaceWrapRawTextHelpFormatter
+    config_file_parser_class=configargparse.TomlConfigParser(['lumix-upnp-dump']),
 )
 config_parser.add_argument(
     "-c", "--config-file", is_config_file=True, help="Config file path"
