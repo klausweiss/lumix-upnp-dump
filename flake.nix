@@ -95,6 +95,7 @@
             users.groups.lumix-upnp-dump = {};
             users.users.lumix-upnp-dump = {
               isSystemUser = true;
+              group = "lumix-upnp-dump";
             };
             environment.etc."lumix-upnp-dump/lumix-upnp-dump.conf" = {
               user = "lumix-upnp-dump";
