@@ -102,9 +102,11 @@
               user = "lumix-upnp-dump";
               group = "lumix-upnp-dump";
               text = ''
-                output-dir: ${toString (cfg.outputFolder)}
-                command-after-finish: |
+                [lumix-upnp-dump]
+                output-dir = ${toString (cfg.outputFolder)}
+                command-after-finish = \'\'\'
                   ${cfg.commandAfterFinish}
+                  \'\'\'
               '';
             };
             systemd.services.lumix-upnp-dump = {
