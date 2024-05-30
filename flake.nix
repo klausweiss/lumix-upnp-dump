@@ -78,18 +78,44 @@
                 Where to dump the media files.
               '';
             };
+            commandAfterFinish = mkOption {
+              type = types.str;
+              description = ''
+                Command to run after dumping media from a camera is completed.
+              '';
+            };
           };
           config = mkIf cfg.enable {
+            # allow upnp discovery from the device
+            # ref https://discourse.nixos.org/t/ssdp-firewall-support/17809
+            networking.firewall.extraCommands = ''
+              iptables -A OUTPUT -d 239.255.255.250/32 -p udp -m udp --dport 1900 -j SET --add-set upnp src,src --exist
+              iptables -A INPUT -p udp -m set --match-set upnp dst,dst -j ACCEPT
+            '';
+            users.groups.lumix-upnp-dump = {};
+            users.users.lumix-upnp-dump = {
+              isSystemUser = true;
+            };
+            environment.etc."lumix-upnp-dump/lumix-upnp-dump.conf" = {
+              text = ''
+                output-dir=${cfg.outputFolder}
+                ${
+                  if cfg.commandAfterFinish != null
+                  then "command-after-finish=${cfg.commandAfterFinish}"
+                  else ""
+                }
+              '';
+            };
             systemd.services.lumix-upnp-dump = {
               enable = true;
               wantedBy = ["multi-user.target"];
               requires = ["network.target"];
+              User = "lumix-upnp-dump";
+              Group = "lumix-upnp-dump";
               serviceConfig = let
                 pkg = self.packages.${system}.default;
               in {
-                ExecStart = "${pkg}/bin/lumix-upnp-dump -o ${
-                  toString (cfg.outputFolder)
-                }";
+                ExecStart = "${pkg}/bin/lumix-upnp-dump --config-file /etc/lumix-upnp-dump/lumix-upnp-dump.conf";
                 Type = "simple";
                 ReadWritePaths = cfg.outputFolder;
 
