@@ -98,15 +98,15 @@
               isSystemUser = true;
               group = "lumix-upnp-dump";
             };
-            environment.etc."lumix-upnp-dump/lumix-upnp-dump.conf" = {
+            environment.etc."lumix-upnp-dump/lumix-upnp-dump.toml" = {
               user = "lumix-upnp-dump";
               group = "lumix-upnp-dump";
               text = ''
                 [lumix-upnp-dump]
                 output-dir = ${toString (cfg.outputFolder)}
-                command-after-finish = \'\'\'
+                command-after-finish = ''''
                   ${cfg.commandAfterFinish}
-                  \'\'\'
+                  ''''
               '';
             };
             systemd.services.lumix-upnp-dump = {
@@ -117,7 +117,7 @@
               serviceConfig = let
                 pkg = self.packages.${system}.default;
               in {
-                ExecStart = "${pkg}/bin/lumix-upnp-dump --config-file /etc/lumix-upnp-dump/lumix-upnp-dump.conf";
+                ExecStart = "${pkg}/bin/lumix-upnp-dump --config-file /etc/lumix-upnp-dump/lumix-upnp-dump.toml";
                 Type = "simple";
                 User = "lumix-upnp-dump";
                 Group = "lumix-upnp-dump";
