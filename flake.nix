@@ -79,10 +79,11 @@
               '';
             };
             commandAfterFinish = mkOption {
-              type = types.str; # TODO: which string type?
+              type = types.str;
               description = ''
                 Command to run after dumping media from a camera is completed.
               '';
+              default = "";
             };
           };
           config = mkIf cfg.enable {
@@ -97,16 +98,17 @@
               isSystemUser = true;
               group = "lumix-upnp-dump";
             };
+            environment.etc."lumix-upnp-dump/command-after-finish.sh" = {
+              user = "lumix-upnp-dump";
+              group = "lumix-upnp-dump";
+              text = cfg.commandAfterFinish;
+            };
             environment.etc."lumix-upnp-dump/lumix-upnp-dump.conf" = {
               user = "lumix-upnp-dump";
               group = "lumix-upnp-dump";
               text = ''
                 output-dir=${toString (cfg.outputFolder)}
-                ${
-                  if cfg.commandAfterFinish != null
-                  then "command-after-finish=${cfg.commandAfterFinish}"
-                  else ""
-                }
+                command-after-finish=${pkgs.bash}/bin/bash /etc/lumix-upnp-dump/command-after-finish.sh
               '';
             };
             systemd.services.lumix-upnp-dump = {
