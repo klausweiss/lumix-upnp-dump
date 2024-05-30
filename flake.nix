@@ -79,7 +79,7 @@
               '';
             };
             commandAfterFinish = mkOption {
-              type = types.str;
+              type = types.str; # TODO: which string type?
               description = ''
                 Command to run after dumping media from a camera is completed.
               '';
@@ -97,6 +97,8 @@
               isSystemUser = true;
             };
             environment.etc."lumix-upnp-dump/lumix-upnp-dump.conf" = {
+              user = "lumix-upnp-dump";
+              group = "lumix-upnp-dump";
               text = ''
                 output-dir=${cfg.outputFolder}
                 ${
@@ -110,13 +112,13 @@
               enable = true;
               wantedBy = ["multi-user.target"];
               requires = ["network.target"];
-              User = "lumix-upnp-dump";
-              Group = "lumix-upnp-dump";
               serviceConfig = let
                 pkg = self.packages.${system}.default;
               in {
                 ExecStart = "${pkg}/bin/lumix-upnp-dump --config-file /etc/lumix-upnp-dump/lumix-upnp-dump.conf";
                 Type = "simple";
+                User = "lumix-upnp-dump";
+                Group = "lumix-upnp-dump";
                 ReadWritePaths = cfg.outputFolder;
 
                 PrivateTmp = "yes";
