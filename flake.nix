@@ -103,7 +103,7 @@
               group = "lumix-upnp-dump";
               text = ''
                 [lumix-upnp-dump]
-                output-dir = ${toString (cfg.outputFolder)}
+                output-dir = "${toString (cfg.outputFolder)}"
                 command-after-finish = ''''
                   ${cfg.commandAfterFinish}
                   ''''
