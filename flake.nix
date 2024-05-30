@@ -101,7 +101,7 @@
               user = "lumix-upnp-dump";
               group = "lumix-upnp-dump";
               text = ''
-                output-dir=${cfg.outputFolder}
+                output-dir=${toString(cfg.outputFolder)}
                 ${
                   if cfg.commandAfterFinish != null
                   then "command-after-finish=${cfg.commandAfterFinish}"
@@ -120,7 +120,7 @@
                 Type = "simple";
                 User = "lumix-upnp-dump";
                 Group = "lumix-upnp-dump";
-                ReadWritePaths = cfg.outputFolder;
+                ReadWritePaths = toString(cfg.outputFolder);
 
                 PrivateTmp = "yes";
                 NoNewPrivileges = "yes";
