@@ -98,17 +98,13 @@
               isSystemUser = true;
               group = "lumix-upnp-dump";
             };
-            environment.etc."lumix-upnp-dump/command-after-finish.sh" = {
-              user = "lumix-upnp-dump";
-              group = "lumix-upnp-dump";
-              text = cfg.commandAfterFinish;
-            };
             environment.etc."lumix-upnp-dump/lumix-upnp-dump.conf" = {
               user = "lumix-upnp-dump";
               group = "lumix-upnp-dump";
               text = ''
-                output-dir=${toString (cfg.outputFolder)}
-                command-after-finish=${pkgs.bash}/bin/bash /etc/lumix-upnp-dump/command-after-finish.sh
+                output-dir: ${toString (cfg.outputFolder)}
+                command-after-finish: |
+                  ${cfg.commandAfterFinish}
               '';
             };
             systemd.services.lumix-upnp-dump = {
