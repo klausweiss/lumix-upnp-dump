@@ -1,5 +1,5 @@
 {
-  description = "Application packaged using poetry2nix";
+  description = "A program to dump media from Lumix cameras on the network";
 
   inputs = {
     flake-utils.url = "github:numtide/flake-utils";
