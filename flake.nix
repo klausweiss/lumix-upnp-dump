@@ -123,6 +123,7 @@
                 Group = "lumix-upnp-dump";
                 ReadWritePaths = toString (cfg.outputFolder);
 
+                # ref https://gist.github.com/ageis/f5595e59b1cddb1513d1b425a323db04
                 PrivateTmp = "yes";
                 NoNewPrivileges = "yes";
                 PrivateDevices = "yes";
