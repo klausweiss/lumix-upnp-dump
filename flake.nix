@@ -32,7 +32,7 @@
             upnpclient = prev.upnpclient.overridePythonAttrs (old: {
               buildInputs =
                 (old.buildInputs or [])
-                ++ [pkgs.poetry pkgs.python311Packages.poetry-core];
+                ++ [pkgs.poetry pkgs.python312Packages.poetry-core];
             });
           });
         };

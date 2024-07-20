@@ -83,3 +83,10 @@ Args that start with '--' can also be set in a config file (specified via -c). C
 Minimal Language. See https://github.com/toml-lang/toml/blob/v0.5.0/README.md for details. In general, command-line
 values override config file values which override defaults.
 ```
+
+### NixOS installation
+
+> [!NOTE]
+> NixOS support is experimental. I'm only starting to learn it, all feedback is appreciated.
+
+
