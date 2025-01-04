@@ -8,7 +8,7 @@ import pathlib
 import re
 import string
 import subprocess
-from typing import Dict, Generator, Iterator, List, NamedTuple, NoReturn, Union
+from typing import Dict, Generator, Iterator, List, NamedTuple, NoReturn, Union, Any
 
 import configargparse
 import requests
@@ -19,20 +19,17 @@ from lumix_upnp_dump.more_argparse import PreserveWhiteSpaceWrapRawTextHelpForma
 
 logging.basicConfig(
     level=logging.INFO,
-    format=(
-        "%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s"
-    ),
+    format=("%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s"),
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger(__name__)
 
 
 config_parser = configargparse.ArgParser(
-    formatter_class=PreserveWhiteSpaceWrapRawTextHelpFormatter
+    formatter_class=PreserveWhiteSpaceWrapRawTextHelpFormatter,
+    config_file_parser_class=configargparse.TomlConfigParser(["lumix-upnp-dump"]),
 )
-config_parser.add_argument(
-    "-c", "--config-file", is_config_file=True, help="Config file path"
-)
+config_parser.add_argument("-c", "--config-file", is_config_file=True, help="Config file path")
 config_parser.add_argument(
     "-o",
     "--output-dir",
@@ -70,9 +67,7 @@ class ExecutionContext:
     def __init__(self, config: Config) -> None:
         self.config = config
 
-    def run_command_after_finish(
-        self, n: int, total_items: int | None, camera_name: str
-    ) -> None:
+    def run_command_after_finish(self, n: int, total_items: int | None, camera_name: str) -> None:
         if self._command_after_finish_template is None:
             return
         command_string = self._command_after_finish_template.safe_substitute(
@@ -257,9 +252,7 @@ def download_media_from_camera(
             target_locations = DownloadTargetLocations(target_directory)
             log.info(f"Started downloading {media_item}")
             if isinstance(media_item, Photo):
-                downloaded = download_photo(
-                    media_item, target_locations, WhatToDownload.BOTH
-                )
+                downloaded = download_photo(media_item, target_locations, WhatToDownload.BOTH)
                 if downloaded is not WhatWasDownloaded.NONE:
                     content_directory.DestroyObject(ObjectID=media_item.object_id)
                     media_iterator.notify_produced_item_was_deleted()
@@ -298,6 +291,17 @@ class WhatWasDownloaded(enum.Enum):
     JUST_RAW = enum.auto()
     BOTH = enum.auto()
 
+    def __or__(self, other: Any) -> "WhatWasDownloaded":
+        if not isinstance(other, WhatWasDownloaded):
+            raise TypeError(f"Expected {WhatWasDownloaded}, got {type(other)}")
+        if self is WhatWasDownloaded.NONE:
+            return other
+        if other is WhatWasDownloaded.NONE:
+            return self
+        if self == other:
+            return self
+        return WhatWasDownloaded.BOTH
+
 
 class WhatToDownload(enum.Enum):
     JUST_JPEG = enum.auto()
@@ -314,7 +318,7 @@ def download_photo(
     if what_to_download in {WhatToDownload.JUST_RAW, WhatToDownload.BOTH}:
         try:
             download_file(photo.raw_url, target_locations)
-            downloaded = WhatWasDownloaded.JUST_RAW
+            downloaded |= WhatWasDownloaded.JUST_RAW
             log.info(f"Downloaded RAW: {photo.name}")
         except requests.HTTPError:
             # it's fine, raw is not always there
@@ -323,11 +327,7 @@ def download_photo(
     if what_to_download in {WhatToDownload.JUST_JPEG, WhatToDownload.BOTH}:
         try:
             download_file(photo.best_jpeg_url, target_locations)
-            downloaded = (
-                WhatWasDownloaded.BOTH
-                if downloaded == WhatWasDownloaded.JUST_RAW
-                else WhatWasDownloaded.JUST_JPEG
-            )
+            downloaded |= WhatWasDownloaded.JUST_JPEG
             log.info(f"Downloaded JPEG: {photo.name}")
         except requests.HTTPError:
             # it's fine, jpeg is also not always there
