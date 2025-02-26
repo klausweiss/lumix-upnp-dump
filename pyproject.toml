@@ -11,18 +11,19 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.10.10,<3.13"
+python = ">=3.10.6,<3.13"
 upnpclient = "~=1.0.3"
-python-didl-lite = "~=1.3.2"
-requests = "~=2.31.0"
-configargparse = "~=1.5.3"
+python-didl-lite = "~=1.4.1"
+requests = "~=2.32.3"
+configargparse = "~=1.7"
+toml = "^0.10.2"
 
 [tool.poetry.group.dev.dependencies]
-mypy = "^1.3.0"
+mypy = "^1.14.1"
 black = "*"
 isort = "*"
-ruff = "*"
-types-requests = "~=2.31.0"
+ruff = "==0.7.3"
+types-requests = "~=2.32.0"
 
 
 [tool.poetry.group.test.dependencies]
