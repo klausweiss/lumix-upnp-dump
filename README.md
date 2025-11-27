@@ -75,11 +75,18 @@ options:
                             RAW were saved)
                           - ${total}: total number of media files on the device prior to download or '-' if unknown
                         For example:
-                        
+
                           lumix-upnp-dump [...] --command-after-finish 'echo Downloaded ${n}/${total} media files from
                           ${camera} >> /tmp/lumix-dump.log'
 
-Args that start with '--' (eg. -o) can also be set in a config file (specified via -c). Config file syntax allows:
-key=value, flag=true, stuff=[a,b,c] (for details, see syntax at https://goo.gl/R74nmi). If an arg is specified in more
-than one place, then commandline values override config file values which override defaults.
+Args that start with '--' can also be set in a config file (specified via -c). Config file syntax is Tom's Obvious,
+Minimal Language. See https://github.com/toml-lang/toml/blob/v0.5.0/README.md for details. In general, command-line
+values override config file values which override defaults.
 ```
+
+### NixOS installation
+
+> [!NOTE]
+> NixOS support is experimental. I'm only starting to learn it, all feedback is appreciated.
+
+

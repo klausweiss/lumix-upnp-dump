@@ -160,3 +160,4 @@ cython_debug/
 *.pex
 requirements.txt
 .idea/
+result
