@@ -8,7 +8,7 @@ import pathlib
 import re
 import string
 import subprocess
-from typing import Dict, Generator, Iterator, List, NamedTuple, NoReturn, Union, Any
+from typing import Any, Dict, Generator, Iterator, List, NamedTuple, NoReturn, Union
 
 import configargparse
 import requests

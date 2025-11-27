@@ -1,43 +1,53 @@
-[tool.poetry]
+[project]
 name = "lumix-upnp-dump"
 version = "0.2.0"
 description = "Program that dumps media from Lumix cameras on the network, removing them from device."
-authors = ["Mikołaj Biel <lumix-upnp-dump@mbiel.pl>"]
+authors = [
+    {name = "Mikołaj Biel", email = "lumix-upnp-dump@mbiel.pl"}
+]
 readme = "README.md"
-license = "GPL-3.0-only"
-repository = "https://github.com/klausweiss/lumix-upnp-dump"
+license = {text = "GPL-3.0-only"}
+requires-python = ">=3.10.10,<3.15"
 classifiers = [
 	"Topic :: Multimedia :: Graphics :: Capture :: Digital Camera",
 ]
+dependencies = [
+    "upnpclient~=1.0.3",
+    "python-didl-lite~=1.4.1",
+    "requests~=2.32.4",
+    "configargparse~=1.7.1",
+]
 
-[tool.poetry.dependencies]
-python = ">=3.10.6,<3.13"
-upnpclient = "~=1.0.3"
-python-didl-lite = "~=1.4.1"
-requests = "~=2.32.3"
-configargparse = "~=1.7"
-toml = "^0.10.2"
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.18.2",
+    "ruff",
+    "types-requests~=2.32.4.20250913",
+    "pytest>=9.0.1",
+]
 
-[tool.poetry.group.dev.dependencies]
-mypy = "^1.14.1"
-black = "*"
-isort = "*"
-ruff = "==0.7.3"
-types-requests = "~=2.32.0"
-
-
-[tool.poetry.group.test.dependencies]
-pytest = "^8.3.4"
-
-[tool.poetry.scripts]
+[project.scripts]
 lumix-upnp-dump = "lumix_upnp_dump.__main__:main"
 
+[project.urls]
+Repository = "https://github.com/klausweiss/lumix-upnp-dump"
+
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+select = ["I"]  # Enable isort rules
+
+[tool.ruff.lint.isort]
+known-first-party = ["lumix_upnp_dump"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [tool.mypy]
 check_untyped_defs = true

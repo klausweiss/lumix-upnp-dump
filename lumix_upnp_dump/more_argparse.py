@@ -1,6 +1,6 @@
 import argparse
-import textwrap as _textwrap
 import re
+import textwrap as _textwrap
 
 
 class PreserveWhiteSpaceWrapRawTextHelpFormatter(argparse.RawDescriptionHelpFormatter):
