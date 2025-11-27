@@ -16,6 +16,9 @@ dependencies = [
     "python-didl-lite~=1.4.1",
     "requests~=2.32.4",
     "configargparse~=1.7.1",
+    "pillow~=12.0.0",
+    "rawpy~=0.25.1",
+    "integv~=1.3.0",
 ]
 
 [project.optional-dependencies]

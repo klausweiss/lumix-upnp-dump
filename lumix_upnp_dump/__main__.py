@@ -3,17 +3,32 @@ import enum
 import functools
 import itertools
 import logging
-import os
 import pathlib
 import re
+import shutil
 import string
 import subprocess
-from typing import Any, Dict, Generator, Iterator, List, NamedTuple, NoReturn, Union
+import tempfile
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    Iterator,
+    List,
+    NamedTuple,
+    NoReturn,
+    Optional,
+    Union,
+)
 
 import configargparse
+import integv
+import rawpy
 import requests
 import upnpclient as upnp
 from didl_lite import didl_lite
+from PIL import Image
 
 from lumix_upnp_dump.more_argparse import PreserveWhiteSpaceWrapRawTextHelpFormatter
 
@@ -233,7 +248,44 @@ class DownloadTargetLocations:
     def delete_not_completed(self) -> None:
         for p, v in self._paths.items():
             if not v:
-                os.remove(self._base_dir / p)
+                file_path = self._base_dir / p
+                if file_path.exists():
+                    file_path.unlink()
+
+
+class FileVerificationError(Exception):
+    pass
+
+
+def verify_image(file_path: pathlib.Path) -> None:
+    try:
+        with Image.open(file_path) as img:
+            img.verify()
+        # verify() closes the file, so we need to reopen to check if we can actually load it
+        with Image.open(file_path) as img:
+            img.load()
+    except Exception as e:
+        raise FileVerificationError(f"Image verification failed for {file_path.name}: {e}") from e
+
+
+def verify_raw(file_path: pathlib.Path) -> None:
+    try:
+        with rawpy.imread(str(file_path)) as raw:
+            # Attempt to postprocess the image to verify it's readable
+            raw.postprocess()
+    except Exception as e:
+        raise FileVerificationError(f"RAW verification failed for {file_path.name}: {e}") from e
+
+
+def verify_video(file_path: pathlib.Path) -> None:
+    try:
+        is_valid = integv.verify(str(file_path))
+        if not is_valid:
+            raise FileVerificationError(f"Video verification failed for {file_path.name}")
+    except FileVerificationError:
+        raise
+    except Exception as e:
+        raise FileVerificationError(f"Video verification failed for {file_path.name}: {e}") from e
 
 
 def download_media_from_camera(
@@ -267,6 +319,10 @@ def download_media_from_camera(
                 log.info(f"Downloaded and deleted {media_item} from camera")
                 nb_downloaded += 1
         log.info(f"Download from {camera.friendly_name} finished")
+    except FileVerificationError as e:
+        log.exception("Error validating file upon download")
+        if target_locations is not None:
+            target_locations.delete_not_completed()
     except requests.exceptions.ChunkedEncodingError:
         log.info("Media download was interrupted")
         # download was interrupted (e.g. camera button pressed)
@@ -281,8 +337,8 @@ def download_media_from_camera(
         )
 
 
-def download_movie(movie: Movie, target_locations: DownloadTargetLocations) -> None:
-    download_file(movie.mp4_url, target_locations)
+def download_movie(movie: Movie, target_locations: DownloadTargetLocations) -> bool:
+    download_file(movie.mp4_url, target_locations, verify_fn=verify_video)
 
 
 class WhatWasDownloaded(enum.Enum):
@@ -317,7 +373,7 @@ def download_photo(
     downloaded = WhatWasDownloaded.NONE
     if what_to_download in {WhatToDownload.JUST_RAW, WhatToDownload.BOTH}:
         try:
-            download_file(photo.raw_url, target_locations)
+            download_file(photo.raw_url, target_locations, verify_fn=verify_raw)
             downloaded |= WhatWasDownloaded.JUST_RAW
             log.info(f"Downloaded RAW: {photo.name}")
         except requests.HTTPError:
@@ -326,7 +382,7 @@ def download_photo(
 
     if what_to_download in {WhatToDownload.JUST_JPEG, WhatToDownload.BOTH}:
         try:
-            download_file(photo.best_jpeg_url, target_locations)
+            download_file(photo.best_jpeg_url, target_locations, verify_fn=verify_image)
             downloaded |= WhatWasDownloaded.JUST_JPEG
             log.info(f"Downloaded JPEG: {photo.name}")
         except requests.HTTPError:
@@ -335,15 +391,40 @@ def download_photo(
     return downloaded
 
 
-def download_file(url: str, target_locations: DownloadTargetLocations) -> None:
+def download_file(
+    url: str,
+    target_locations: DownloadTargetLocations,
+    verify_fn: Optional[Callable[[pathlib.Path], None]] = None,
+) -> None:
     output_file = url.rsplit("/", maxsplit=1)[1]
     target_path = target_locations.register(output_file)
-    with requests.get(url, stream=True) as response:
-        response.raise_for_status()
-        with open(target_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-    target_locations.mark_completed(output_file)
+
+    temp_path = pathlib.Path(tempfile.gettempdir()) / f"lumix_temp_{output_file}"
+
+    try:
+        # Download to temp location
+        with requests.get(url, stream=True) as response:
+            response.raise_for_status()
+            with open(temp_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+        if verify_fn is not None:
+            log.info("Fetched file, verifying")
+            verify_fn(temp_path)
+
+        # Move to final location if verification passed (or no verification needed)
+        shutil.move(str(temp_path), str(target_path))
+        target_locations.mark_completed(output_file)
+    except FileVerificationError as e:
+        log.warning(f"File verification failed for {output_file}: {e}")
+        if temp_path.exists():
+            temp_path.unlink()
+        raise
+    except Exception:
+        if temp_path.exists():
+            temp_path.unlink()
+        raise
 
 
 class UpnpMediaIterator:
