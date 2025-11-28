@@ -329,6 +329,11 @@ def download_media_from_camera(
         # delete incomplete files from disk
         if target_locations is not None:
             target_locations.delete_not_completed()
+    except requests.exceptions.RequestException as e:
+        log.warning(f"Connection to camera lost: {e}")
+        log.info("Camera may have powered off or gone to sleep. Files downloaded so far have been saved.")
+        # Don't delete files on connection errors - this might have happened during DestroyObject operation, once
+        # the camera has already destroyed items.
     finally:
         context.run_command_after_finish(
             n=nb_downloaded,
