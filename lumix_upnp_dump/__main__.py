@@ -414,7 +414,10 @@ def download_file(
             verify_fn(temp_path)
 
         # Move to final location if verification passed (or no verification needed)
-        shutil.move(str(temp_path), str(target_path))
+        # Use copyfile + unlink to handle cross-filesystem moves reliably
+        # (shutil.copy does not work with CIFS mounts, for instance).
+        shutil.copyfile(str(temp_path), str(target_path))
+        temp_path.unlink()
         target_locations.mark_completed(output_file)
     except FileVerificationError as e:
         log.warning(f"File verification failed for {output_file}: {e}")
