@@ -64,7 +64,15 @@
         pythonSet = pythonSets.${system};
       in {
         packages = {
-          lumix-upnp-dump = pythonSet.mkVirtualEnv "lumix-upnp-dump-env" workspace.deps.default;
+          lumix-upnp-dump = pkgs.symlinkJoin {
+            name = "lumix-upnp-dump";
+            paths = [ (pythonSet.mkVirtualEnv "lumix-upnp-dump-env" workspace.deps.default) ];
+            buildInputs = [ pkgs.makeWrapper ];
+            postBuild = ''
+              wrapProgram $out/bin/lumix-upnp-dump \
+                --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.ffmpeg ]}
+            '';
+          };
           default = self.packages.${system}.lumix-upnp-dump;
         };
 
@@ -81,6 +89,7 @@
           packages = [
             virtualenv
             pkgs.uv
+            pkgs.ffmpeg
           ];
           env = {
             UV_NO_SYNC = "1";
@@ -155,7 +164,7 @@
               enable = true;
               wantedBy = ["multi-user.target"];
               requires = ["network.target"];
-              path = with pkgs; [bash];
+              path = with pkgs; [bash ffmpeg];
               serviceConfig = let
                 pkg = self.packages.${system}.default;
               in {
