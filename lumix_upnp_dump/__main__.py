@@ -24,7 +24,6 @@ from typing import (
 )
 
 import configargparse
-import integv
 import rawpy
 import requests
 import upnpclient as upnp
@@ -216,11 +215,10 @@ class Movie(abc.ABC):
     @abc.abstractmethod
     def object_id(self) -> str: ...
 
-    # TODO: this has only been tested with what GX800 responds with for MTS movies
     @functools.cached_property
     def size(self) -> float:
         with requests.get(self.url, stream=True) as response:
-            # This is the actual header GX800 uses, not "content-length"
+            # This is the actual header GX800 uses, not "content-length", tested with both AVCHD and MP4
             return response.headers.get("X-FILE_SIZE", float("inf"))
 
 
@@ -331,11 +329,31 @@ def verify_raw(file_path: pathlib.Path) -> None:
         raise FileVerificationError(f"RAW verification failed for {file_path.name}: {e}") from e
 
 
-def verify_mp4_movie(file_path: pathlib.Path) -> None:
+def verify_movie(file_path: pathlib.Path) -> None:
     try:
-        is_valid = integv.verify(str(file_path))
-        if not is_valid:
-            raise FileVerificationError(f"Movie verification failed for {file_path.name}")
+        # Use ffmpeg to verify the video by attempting to decode it
+        # -v error: only show errors
+        # -i: input file
+        # -f null: output format is null (we don't need actual output)
+        # -: output to stdout (discarded with null format)
+        result = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", str(file_path), "-f", "null", "-"],
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout for large videos
+        )
+
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+            raise FileVerificationError(
+                f"Movie verification failed for {file_path.name}: {error_msg}"
+            )
+    except subprocess.TimeoutExpired:
+        raise FileVerificationError(f"Movie verification timed out for {file_path.name}")
+    except FileNotFoundError:
+        raise FileVerificationError(
+            "ffmpeg is not installed or not in PATH. Please install ffmpeg to verify video files."
+        )
     except FileVerificationError:
         raise
     except Exception as e:
@@ -421,11 +439,7 @@ def download_media_from_camera(
 
 
 def download_movie(movie: Movie, target_locations: DownloadTargetLocations) -> None:
-    if movie.url.lower().endswith(".mp4"):
-        verify_fn = verify_mp4_movie
-    else:
-        verify_fn = None
-    download_file(movie.url, target_locations, verify_fn=verify_fn)
+    download_file(movie.url, target_locations, verify_fn=verify_movie)
 
 
 class WhatWasDownloaded(enum.Enum):

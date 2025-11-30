@@ -171,21 +171,11 @@ wheels = [
 ]
 
 [[package]]
-name = "integv"
-version = "1.3.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/9c/98/25cfc16679434c810c97b782c516ae611193b95976e2e748657b2278a071/integv-1.3.0.tar.gz", hash = "sha256:45b86c9bc6bbfce8badc00ae5cdd57878a5a56e2dee9dc416c80001ca1a245ae", size = 14172, upload-time = "2020-02-25T21:19:12.54Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0d/47/6ef13c171e23952cf2c25c984e9f65d246baeba9cfdc6b7a0e10407d6dee/integv-1.3.0-py3-none-any.whl", hash = "sha256:8993b9da27abbe4407fb9b214fe1c43990c20cabe33f7166afdb4aef8201778b", size = 24796, upload-time = "2020-02-25T21:19:10.748Z" },
-]
-
-[[package]]
 name = "lumix-upnp-dump"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "configargparse" },
-    { name = "integv" },
     { name = "pillow" },
     { name = "python-didl-lite" },
     { name = "rawpy" },
@@ -205,7 +195,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "configargparse", specifier = "~=1.7.1" },
-    { name = "integv", specifier = "~=1.3.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.18.2" },
     { name = "pillow", specifier = "~=12.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.1" },
