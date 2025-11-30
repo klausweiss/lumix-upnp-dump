@@ -1,3 +1,4 @@
+import abc
 import dataclasses
 import enum
 import functools
@@ -206,27 +207,80 @@ class Photo:
         return f"<Photo: {self.name}>"
 
 
+class Movie(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def url(self) -> str: ...
+
+    @property
+    @abc.abstractmethod
+    def object_id(self) -> str: ...
+
+    # TODO: this has only been tested with what GX800 responds with for MTS movies
+    @functools.cached_property
+    def size(self) -> float:
+        with requests.get(self.url, stream=True) as response:
+            # This is the actual header GX800 uses, not "content-length"
+            return response.headers.get("X-FILE_SIZE", float("inf"))
+
+
 @dataclasses.dataclass
-class Movie:
+class Mp4Movie(Movie):
     _didl_movie: didl_lite.Movie
     _MP4_RE = re.compile(r"/do\w+\.mp4$", re.IGNORECASE)  # /DO1050345.MP4
 
     @property
     def name(self) -> str:
-        return base_filename_from_url(self.mp4_url)
+        return base_filename_from_url(self.url)
 
     @property
     def object_id(self) -> str:
         return self._didl_movie.id
 
-    @property
-    def mp4_url(self) -> str:
+    @functools.cached_property
+    def url(self) -> str:
         uris = (res.uri for res in self._didl_movie.res if res.uri is not None)
-        movies_uris = [uri for uri in uris if Movie._MP4_RE.search(uri)]
+        movies_uris = [uri for uri in uris if Mp4Movie._MP4_RE.search(uri)]
         return movies_uris[0]
 
     def __str__(self) -> str:
-        return f"<Movie: {self.name}>"
+        return f"<MP4 Movie: {self.name}>"
+
+
+@dataclasses.dataclass
+class MtsMovie(Movie):
+    # these were found to be masquerading as images by GX800
+    # http://192.168.0.215:50001/DO193986560001.JPG
+    # ^ returning 404 was actually an actual movie under
+    # http://192.168.0.215:50001/DO19398656-0001.MTS
+    _didl_image: didl_lite.ImageItem
+    _MTS_RE = re.compile(
+        r"/(?P<base_name>do\d{8})(?P<suffix>\d{4})\.jpg$", re.IGNORECASE
+    )  # /DO193986560001.JPG
+
+    @property
+    def name(self) -> str:
+        return base_filename_from_url(self.url)
+
+    @functools.cached_property
+    def object_id(self) -> str:
+        return self._didl_image.title
+
+    @functools.cached_property
+    def url(self) -> str:
+        uris = (res.uri for res in self._didl_image.res if res.uri is not None)
+        movies_uris = list(filter(None, map(MtsMovie._MTS_RE.search, uris)))
+        if not movies_uris:
+            raise ValueError("The underlying didl ImageItem did not have any MTS file")
+        raw_url = movies_uris[0]
+        base_name = raw_url.group("base_name")
+        suffix = raw_url.group("suffix")
+        # Roughly the same format should be accessible under self._didl_image.title
+        # (without the DO prefix).
+        return MtsMovie._MTS_RE.sub(f"/{base_name}-{suffix}.MTS", raw_url.string)
+
+    def __str__(self) -> str:
+        return f"<MTS Movie: {self.name}>"
 
 
 def base_filename_from_url(url: str) -> str:
@@ -277,15 +331,15 @@ def verify_raw(file_path: pathlib.Path) -> None:
         raise FileVerificationError(f"RAW verification failed for {file_path.name}: {e}") from e
 
 
-def verify_video(file_path: pathlib.Path) -> None:
+def verify_mp4_movie(file_path: pathlib.Path) -> None:
     try:
         is_valid = integv.verify(str(file_path))
         if not is_valid:
-            raise FileVerificationError(f"Video verification failed for {file_path.name}")
+            raise FileVerificationError(f"Movie verification failed for {file_path.name}")
     except FileVerificationError:
         raise
     except Exception as e:
-        raise FileVerificationError(f"Video verification failed for {file_path.name}: {e}") from e
+        raise FileVerificationError(f"Movie verification failed for {file_path.name}: {e}") from e
 
 
 def download_media_from_camera(
@@ -295,31 +349,53 @@ def download_media_from_camera(
 ) -> None:
     content_directory = camera["ContentDirectory"]
     media_iterator = UpnpMediaIterator(content_directory)
+
+    # consuming everything to be able to sort:
+    #  1. photos first
+    #  2. then movies
+    all_media = list(media_iterator)
+    photos: list[Photo] = [m for m in all_media if isinstance(m, Photo)]
+    movies: list[Movie] = [m for m in all_media if isinstance(m, Movie)]
+
     target_locations = None
     nb_downloaded = 0
     try:
-        for media_item in media_iterator:
+        # Unfortunately, at least for GX800, the underlying HTTP server which hosts the images/movies
+        # is single-threaded. We can't parallelize the download, as it only allows a single client
+        # to connect at the same time.
+        for media_item in photos:
             # We create a DownloadTargetLotions object per media_item, to only delete the locations associated with
             # that media item if for some reason the download fails.
             target_locations = DownloadTargetLocations(target_directory)
-            log.info(f"Started downloading {media_item}")
-            if isinstance(media_item, Photo):
-                downloaded = download_photo(media_item, target_locations, WhatToDownload.BOTH)
-                if downloaded is not WhatWasDownloaded.NONE:
-                    content_directory.DestroyObject(ObjectID=media_item.object_id)
-                    media_iterator.notify_produced_item_was_deleted()
-                    log.info(f"Deleted {media_item} from camera")
-                    nb_downloaded += 1
-                else:
-                    log.info(f"Could not download {media_item}")
-            elif isinstance(media_item, Movie):
-                download_movie(media_item, target_locations)
+            log.info(f"Started downloading picture {media_item}")
+            downloaded = download_photo(media_item, target_locations, WhatToDownload.BOTH)
+            if downloaded is not WhatWasDownloaded.NONE:
                 content_directory.DestroyObject(ObjectID=media_item.object_id)
-                media_iterator.notify_produced_item_was_deleted()
-                log.info(f"Downloaded and deleted {media_item} from camera")
+                log.info(f"Deleted {media_item} from camera")
                 nb_downloaded += 1
+            else:
+                log.info(f"Could not download {media_item}")
+
+        # TODO: File names for movies aren't statis. They are numbered from 1 up, e.g.
+        #  http://192.168.0.215:50001/DO19398656-0001.MTS
+        #  http://192.168.0.215:50001/DO19398656-0003.MTS
+        #  http://192.168.0.215:50001/DO19398656-0002.MTS
+        #  Then a movie is destroyed, remaining indexes are shifted left.
+        #  For simplicity we're just ordering them descending by id and popping from
+        #  the queue.
+        movies = sorted(movies, key=lambda movie: movie.object_id, reverse=True)
+        for media_item in movies:
+            # We create a DownloadTargetLotions object per media_item, to only delete the locations associated with
+            # that media item if for some reason the download fails.
+            target_locations = DownloadTargetLocations(target_directory)
+            log.info(f"Started downloading movie {media_item}")
+            download_movie(media_item, target_locations)
+            content_directory.DestroyObject(ObjectID=media_item.object_id)
+            log.info(f"Downloaded and deleted {media_item} from camera")
+            nb_downloaded += 1
+
         log.info(f"Download from {camera.friendly_name} finished")
-    except FileVerificationError as e:
+    except FileVerificationError:
         log.exception("Error validating file upon download")
         if target_locations is not None:
             target_locations.delete_not_completed()
@@ -331,7 +407,9 @@ def download_media_from_camera(
             target_locations.delete_not_completed()
     except requests.exceptions.RequestException as e:
         log.warning(f"Connection to camera lost: {e}")
-        log.info("Camera may have powered off or gone to sleep. Files downloaded so far have been saved.")
+        log.info(
+            "Camera may have powered off or gone to sleep. Files downloaded so far have been saved."
+        )
         # Don't delete files on connection errors - this might have happened during DestroyObject operation, once
         # the camera has already destroyed items.
     finally:
@@ -342,8 +420,12 @@ def download_media_from_camera(
         )
 
 
-def download_movie(movie: Movie, target_locations: DownloadTargetLocations) -> bool:
-    download_file(movie.mp4_url, target_locations, verify_fn=verify_video)
+def download_movie(movie: Movie, target_locations: DownloadTargetLocations) -> None:
+    if movie.url.lower().endswith(".mp4"):
+        verify_fn = verify_mp4_movie
+    else:
+        verify_fn = None
+    download_file(movie.url, target_locations, verify_fn=verify_fn)
 
 
 class WhatWasDownloaded(enum.Enum):
@@ -451,7 +533,7 @@ class UpnpMediaIterator:
     def total_items(self) -> int | None:
         return self._total_items
 
-    def __iter__(self) -> Generator[Union[Movie, Photo], None, None]:
+    def __iter__(self) -> Generator[Union[Mp4Movie, MtsMovie, Photo], None, None]:
         last_index = 0
         request_at_once = 10
         while True:
@@ -482,10 +564,20 @@ class UpnpMediaIterator:
             items = didl_lite.from_xml_string(didl_lite_result)
             for item in items:
                 if isinstance(item, didl_lite.ImageItem):
-                    yield Photo(item)
+                    try:
+                        yield self._parse_mts_movie(item)
+                    except Exception:
+                        yield Photo(item)
                 elif isinstance(item, didl_lite.Movie):
-                    yield Movie(item)
+                    yield Mp4Movie(item)
             last_index += returned
+
+    @staticmethod
+    def _parse_mts_movie(item: didl_lite.ImageItem) -> MtsMovie:
+        maybe_movie = MtsMovie(item)
+        if not maybe_movie.url:
+            raise ValueError("This is not an MTS movie")
+        return maybe_movie
 
 
 def main() -> None:
