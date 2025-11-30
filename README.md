@@ -16,6 +16,8 @@ Allows to automatically dump all media from the camera, including videos, not li
 
 Requires python3.10.
 
+Saving videos requires `ffmpeg` to be installed as well.
+
 ```shell
 pipx install lumix-upnp-dump
 ```
